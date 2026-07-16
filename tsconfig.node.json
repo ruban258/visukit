@@ -1,0 +1,22 @@
+{
+	// Type-checking config for the Node-side code that lives OUTSIDE the SvelteKit app
+	// (the gateway and the dev scripts). The SvelteKit tsconfig only includes src/**, so
+	// without this the editor puts these files in a loose "inferred project" where the
+	// `process` global and `.ts`-extension imports aren't typed.
+	"compilerOptions": {
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"target": "esnext",
+		"lib": ["esnext"],
+		"types": ["node"],
+		"allowJs": true,
+		"checkJs": true,
+		"allowImportingTsExtensions": true,
+		"esModuleInterop": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"noEmit": true
+	},
+	"include": ["opcua-gateway/**/*.ts", "scripts/**/*.ts"]
+}

@@ -1,0 +1,159 @@
+{
+	"servers": {
+		"sim-plc": "opc.tcp://localhost:4840/UA/VisuKitSim"
+	},
+	"tags": [
+		{
+			"id": "machine1.temp",
+			"label": "Temperature",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Temperature\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "°C",
+			"group": "Machine 1",
+			"log": true,
+			"min": 0,
+			"max": 120,
+			"decimals": 1
+		},
+		{
+			"id": "machine1.humidity",
+			"label": "Humidity",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Humidity\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "%",
+			"group": "Machine 1",
+			"log": true,
+			"min": 0,
+			"max": 100,
+			"decimals": 1
+		},
+		{
+			"id": "machine1.fanspeed",
+			"label": "Fan Speed",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"FanSpeed\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "rpm",
+			"group": "Machine 1",
+			"log": true,
+			"min": 0,
+			"max": 2000
+		},
+		{
+			"id": "machine1.phase",
+			"label": "Phase",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Phase\"",
+			"server": "sim-plc",
+			"dataType": "Int32",
+			"group": "Machine 1"
+		},
+		{
+			"id": "machine1.running",
+			"label": "Running",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Running\"",
+			"server": "sim-plc",
+			"dataType": "Boolean",
+			"group": "Machine 1"
+		},
+		{
+			"id": "machine1.setpoint",
+			"label": "Setpoint",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Setpoint\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "°C",
+			"group": "Machine 1",
+			"writable": true,
+			"min": 0,
+			"max": 120,
+			"decimals": 1
+		},
+		{
+			"id": "machine1.start",
+			"label": "Start",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine1\".\"Start\"",
+			"server": "sim-plc",
+			"dataType": "Boolean",
+			"group": "Machine 1",
+			"writable": true
+		},
+		{
+			"id": "machine2.temp",
+			"label": "Temperature",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Temperature\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "°C",
+			"group": "Machine 2",
+			"log": true,
+			"min": 0,
+			"max": 120,
+			"decimals": 1
+		},
+		{
+			"id": "machine2.humidity",
+			"label": "Humidity",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Humidity\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "%",
+			"group": "Machine 2",
+			"log": true,
+			"min": 0,
+			"max": 100,
+			"decimals": 1
+		},
+		{
+			"id": "machine2.fanspeed",
+			"label": "Fan Speed",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"FanSpeed\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "rpm",
+			"group": "Machine 2",
+			"log": true,
+			"min": 0,
+			"max": 2000
+		},
+		{
+			"id": "machine2.phase",
+			"label": "Phase",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Phase\"",
+			"server": "sim-plc",
+			"dataType": "Int32",
+			"group": "Machine 2"
+		},
+		{
+			"id": "machine2.running",
+			"label": "Running",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Running\"",
+			"server": "sim-plc",
+			"dataType": "Boolean",
+			"group": "Machine 2"
+		},
+		{
+			"id": "machine2.setpoint",
+			"label": "Setpoint",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Setpoint\"",
+			"server": "sim-plc",
+			"dataType": "Double",
+			"unit": "°C",
+			"group": "Machine 2",
+			"writable": true,
+			"min": 0,
+			"max": 120,
+			"decimals": 1
+		},
+		{
+			"id": "machine2.start",
+			"label": "Start",
+			"nodeId": "ns=3;s=\"MachineDB\".\"Machine2\".\"Start\"",
+			"server": "sim-plc",
+			"dataType": "Boolean",
+			"group": "Machine 2",
+			"writable": true
+		}
+	]
+}

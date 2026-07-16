@@ -1,0 +1,43 @@
+{
+	"name": "visukit",
+	"description": "SvelteKit-native OPC UA visualization — live tags, trends, and a historian",
+	"private": true,
+	"version": "0.1.0",
+	"license": "MIT",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"check:node": "tsc -p tsconfig.node.json",
+		"sim": "node scripts/opcua-sim-server.ts",
+		"gateway": "node opcua-gateway/index.ts",
+		"probe": "node scripts/opcua-probe.ts",
+		"format": "prettier --write .",
+		"lint": "prettier --check ."
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "^5.5.7",
+		"@sveltejs/kit": "^2.69.1",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^24.13.2",
+		"@types/ws": "^8.18.1",
+		"prettier": "^3.9.4",
+		"prettier-plugin-svelte": "^4.1.1",
+		"svelte": "^5.56.4",
+		"svelte-check": "^4.7.1",
+		"typescript": "^6.0.3",
+		"vite": "^8.1.3"
+	},
+	"dependencies": {
+		"node-opcua": "^2.175.0",
+		"uplot": "^1.6.32",
+		"ws": "^8.21.0"
+	}
+}
