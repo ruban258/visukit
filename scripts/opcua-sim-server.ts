@@ -8,8 +8,19 @@
 //
 // Run:   npm run sim        (Ctrl+C to stop)
 // Env:   SIM_PORT   (default 4840, the S7 default)
-// Security is None + anonymous — matches how you'd first bring up PLCSIM for dev.
-import { OPCUAServer, DataType, Variant, StatusCodes } from 'node-opcua';
+// Endpoints: None (anonymous, zero-setup dev) AND Sign / SignAndEncrypt (Basic256Sha256) so the
+// gateway's certificate path can be exercised without a PLC. Client certs are auto-accepted —
+// the same as TIA Portal's "automatically accept client certificates during runtime".
+import {
+	OPCUAServer,
+	OPCUACertificateManager,
+	MessageSecurityMode,
+	SecurityPolicy,
+	DataType,
+	Variant,
+	StatusCodes
+} from 'node-opcua';
+import { resolve } from 'node:path';
 
 const PORT = Number(process.env.SIM_PORT ?? 4840);
 
@@ -24,7 +35,19 @@ const started: Record<string, boolean> = { Machine1: false, Machine2: false };
 const server = new OPCUAServer({
 	port: PORT,
 	resourcePath: '/UA/VisuKitSim',
-	buildInfo: { productName: 'VisuKit-Sim-S7-1500', buildNumber: '1', buildDate: new Date() }
+	buildInfo: { productName: 'VisuKit-Sim-S7-1500', buildNumber: '1', buildDate: new Date() },
+	// Own PKI under data/ (gitignored) instead of the node-opcua default in %APPDATA%. The
+	// server cert is self-created on first initialize(); client certs are auto-accepted.
+	serverCertificateManager: new OPCUACertificateManager({
+		rootFolder: resolve('data/pki-sim'),
+		automaticallyAcceptUnknownCertificate: true
+	}),
+	securityModes: [
+		MessageSecurityMode.None,
+		MessageSecurityMode.Sign,
+		MessageSecurityMode.SignAndEncrypt
+	],
+	securityPolicies: [SecurityPolicy.None, SecurityPolicy.Basic256Sha256]
 });
 
 async function main() {
@@ -131,7 +154,8 @@ async function main() {
 	const endpoint = server.getEndpointUrl();
 	console.log('VisuKit sim S7-1500 OPC UA server started.');
 	console.log(`  endpoint: ${endpoint}`);
-	console.log('  security: None + anonymous');
+	console.log('  security: None + anonymous, and Sign/SignAndEncrypt (Basic256Sha256,');
+	console.log('            client certs auto-accepted — like TIA "auto accept at runtime")');
 	console.log(
 		'  tags:     ns=3;s="MachineDB"."Machine1|Machine2"."Temperature|Humidity|FanSpeed|Phase|Running|Setpoint|Start"'
 	);

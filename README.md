@@ -61,6 +61,9 @@ One file defines everything: which servers to connect to, and which tags to subs
 	"servers": {
 		"sim-plc": "opc.tcp://localhost:4840/UA/VisuKitSim"
 		// or with credentials: "plc2": { "endpoint": "opc.tcp://…", "user": "…", "pass": "…" }
+		// or encrypted:  "plc3": { "endpoint": "opc.tcp://…", "security": "SignAndEncrypt" }
+		//   security: None (default) | Sign | SignAndEncrypt
+		//   securityPolicy: Basic256Sha256 (default) | Aes128_Sha256_RsaOaep | Aes256_Sha256_RsaPss
 	},
 	"tags": [
 		{
@@ -101,23 +104,52 @@ How the HMI picks a component for each tag:
 
 For Siemens: activate the OPC UA server in the CPU properties (TIA Portal) and download the
 hardware config — port 102 being open does not mean OPC UA (port 4840) is on. With PLCSIM
-Advanced, use the *PLCSIM Virtual Eth. Adapter `<Local>`* mode; no physical network needed.
+Advanced, use the _PLCSIM Virtual Eth. Adapter `<Local>`_ mode; no physical network needed.
 
-Security note: the gateway currently connects with security `None` + anonymous (fine for
-first bring-up and simulators). Certificate-based `Sign & Encrypt` is on the roadmap — don't
-expose an unencrypted PLC connection across an untrusted network.
+## Security & certificates
+
+By default connections use security `None` + anonymous — fine for first bring-up and
+simulators, but don't run an unencrypted PLC connection across an untrusted network. For real
+plants, turn on certificate-based encryption per server:
+
+```jsonc
+"plc1": { "endpoint": "opc.tcp://…", "security": "SignAndEncrypt" }
+```
+
+(Policy defaults to `Basic256Sha256` — the right choice for S7-1500.) On first secure start
+the gateway creates its own certificate under `data/pki/` (pure JS — no OpenSSL, no admin
+rights) and prints its path. OPC UA trust is **two-way**:
+
+1. **The server must trust the gateway.** Import `data/pki/own/certs/visukit-gateway.pem`
+   into the server's trust list. TIA Portal: _CPU properties → OPC UA → Server → Security →
+   Secure channel → trusted clients_ (needs the project's certificate manager under _Global
+   security settings_), then download. For bring-up you can instead enable _"Automatically
+   accept client certificates during runtime"_ — tighten it later.
+2. **The gateway must trust the server.** Default is trust-on-first-use: the server's cert is
+   accepted on first connect and pinned in `data/pki/trusted/certs/` (changes are then
+   rejected). For strict onboarding set `OPCUA_STRICT_CERTS=1` — unknown server certs are
+   rejected into `data/pki/rejected/`; move the file to `data/pki/trusted/certs/` and restart
+   the gateway to trust it.
+
+The bundled sim also serves `Sign`/`SignAndEncrypt` endpoints (auto-accepting client certs),
+so you can rehearse the whole exchange without a PLC:
+`OPCUA_SECURITY=SignAndEncrypt npm run gateway`.
 
 ## Environment variables (all optional)
 
-| Variable            | Default              | What it does                                 |
-| ------------------- | -------------------- | -------------------------------------------- |
-| `TAGS_CONFIG`       | `config/tags.json`   | path to the config file                      |
-| `GATEWAY_WS_PORT`   | `4900`               | gateway WebSocket port                       |
-| `HISTORIAN_DB`      | `data/historian.sqlite` | historian SQLite file                     |
-| `OPCUA_ENDPOINT`    | —                    | override the endpoint (single-server config) |
-| `OPCUA_USER`/`PASS` | —                    | credentials (single-server config)           |
-| `PUBLIC_GATEWAY_WS` | `ws://<host>:4900`   | WS URL the browser connects to               |
-| `SIM_PORT`          | `4840`               | sim server port                              |
+| Variable                | Default                 | What it does                                    |
+| ----------------------- | ----------------------- | ----------------------------------------------- |
+| `TAGS_CONFIG`           | `config/tags.json`      | path to the config file                         |
+| `GATEWAY_WS_PORT`       | `4900`                  | gateway WebSocket port                          |
+| `HISTORIAN_DB`          | `data/historian.sqlite` | historian SQLite file                           |
+| `OPCUA_ENDPOINT`        | —                       | override the endpoint (single-server config)    |
+| `OPCUA_USER`/`PASS`     | —                       | credentials (single-server config)              |
+| `OPCUA_SECURITY`        | —                       | override security mode (single-server config)   |
+| `OPCUA_SECURITY_POLICY` | —                       | override security policy (single-server config) |
+| `OPCUA_PKI_ROOT`        | `data/pki`              | gateway certificate store                       |
+| `OPCUA_STRICT_CERTS`    | —                       | `1` = reject unknown server certs (no TOFU)     |
+| `PUBLIC_GATEWAY_WS`     | `ws://<host>:4900`      | WS URL the browser connects to                  |
+| `SIM_PORT`              | `4840`                  | sim server port                                 |
 
 ## Deployment
 

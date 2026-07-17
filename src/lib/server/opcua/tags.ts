@@ -1,6 +1,7 @@
 // Loads + validates the config from config/tags.json (override the path with TAGS_CONFIG). The
 // config is an object: { servers, tags }. `servers` maps a name to an OPC UA endpoint (URL string,
-// or { endpoint, user?, pass? }); each tag names which server it lives on. This is the ONLY place
+// or { endpoint, user?, pass?, security?, securityPolicy? }); each tag names which server it
+// lives on. This is the ONLY place
 // that knows config comes from a file — the gateway/WS/app consume loadTags()/loadServers(). To
 // move to a DB source later, swap the body here. Server-only (node:fs); the browser gets the tag
 // catalog over the WS stream, never by reading this file.
@@ -10,8 +11,27 @@ import type { TagDef, TagDataType } from '../../opcua/types.ts';
 
 export type { TagDef, TagDataType } from '../../opcua/types.ts';
 
+// OPC UA message security for a server connection. 'None' = plaintext (dev/simulators only);
+// 'Sign'/'SignAndEncrypt' require the certificate exchange (see client.ts / README).
+export const SECURITY_MODES = ['None', 'Sign', 'SignAndEncrypt'] as const;
+export type SecurityMode = (typeof SECURITY_MODES)[number];
+
+export const SECURITY_POLICIES = [
+	'Basic256Sha256',
+	'Aes128_Sha256_RsaOaep',
+	'Aes256_Sha256_RsaPss'
+] as const;
+export type SecurityPolicyName = (typeof SECURITY_POLICIES)[number];
+
 // One OPC UA server the gateway connects to. `id` is the config.servers key.
-export type ServerDef = { id: string; endpoint: string; user?: string; pass?: string };
+export type ServerDef = {
+	id: string;
+	endpoint: string;
+	user?: string;
+	pass?: string;
+	security: SecurityMode;
+	securityPolicy: SecurityPolicyName;
+};
 
 const VALID_TYPES: TagDataType[] = ['Double', 'Float', 'Int32', 'Boolean', 'String'];
 const CONFIG_PATH = resolve(process.env.TAGS_CONFIG ?? 'config/tags.json');
@@ -23,19 +43,31 @@ function parseServers(raw: unknown): ServerDef[] {
 	for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
 		if (typeof v === 'string') {
 			if (!v) throw new Error(`server "${id}": empty endpoint`);
-			out.push({ id, endpoint: v });
+			out.push({ id, endpoint: v, security: 'None', securityPolicy: 'Basic256Sha256' });
 		} else if (v && typeof v === 'object') {
 			const o = v as Record<string, unknown>;
 			if (typeof o.endpoint !== 'string' || !o.endpoint)
 				throw new Error(`server "${id}": missing "endpoint"`);
+			const security = o.security ?? 'None';
+			if (!SECURITY_MODES.includes(security as SecurityMode))
+				throw new Error(`server "${id}": "security" must be one of ${SECURITY_MODES.join(', ')}`);
+			const securityPolicy = o.securityPolicy ?? 'Basic256Sha256';
+			if (!SECURITY_POLICIES.includes(securityPolicy as SecurityPolicyName))
+				throw new Error(
+					`server "${id}": "securityPolicy" must be one of ${SECURITY_POLICIES.join(', ')}`
+				);
 			out.push({
 				id,
 				endpoint: o.endpoint,
 				user: typeof o.user === 'string' ? o.user : undefined,
-				pass: typeof o.pass === 'string' ? o.pass : undefined
+				pass: typeof o.pass === 'string' ? o.pass : undefined,
+				security: security as SecurityMode,
+				securityPolicy: securityPolicy as SecurityPolicyName
 			});
 		} else {
-			throw new Error(`server "${id}": must be a URL string or { endpoint, user?, pass? }`);
+			throw new Error(
+				`server "${id}": must be a URL string or { endpoint, user?, pass?, security?, securityPolicy? }`
+			);
 		}
 	}
 	if (out.length === 0) throw new Error('config.servers is empty');

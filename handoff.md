@@ -1,6 +1,6 @@
 # VisuKit — Handoff / Status
 
-_Last updated: 2026-07-16. Branch: `main`._
+_Last updated: 2026-07-17. Branch: `main`._
 
 This doc is the portable summary of where VisuKit stands — readable by a contributor or by a
 fresh AI coding session on any machine. Code is the source of truth; this is the map.
@@ -36,9 +36,10 @@ connect, and keeps collecting history while the web app restarts during developm
 ## Files
 
 **Config** — `config/tags.json`: object `{ servers, tags }`. `servers` maps name → endpoint (URL
-string or `{ endpoint, user, pass }`). Each tag: `id, label, nodeId, server, dataType, writable?,
-log?, unit?, group?, min?, max?, decimals?`. `server` optional if only one server. `log: true` =
-historize.
+string or `{ endpoint, user?, pass?, security?, securityPolicy? }`; security `None` (default) |
+`Sign` | `SignAndEncrypt`, policy default `Basic256Sha256`). Each tag: `id, label, nodeId,
+server, dataType, writable?, log?, unit?, group?, min?, max?, decimals?`. `server` optional if
+only one server. `log: true` = historize.
 
 **Server (`src/lib/server/opcua/`)**
 
@@ -47,12 +48,17 @@ historize.
 - `client.ts` — `startGateway({ servers, tags, onChange, onStatus })`: ONE session per server via
   internal non-blocking `connectServer()` (a down server retries forever without stalling others);
   `write()` routes to the owning session and maps `dataType` → OPC UA type (note: `Float` ≠
-  `Double` — an S7 `Real` write as Double fails with `BadTypeMismatch`).
+  `Double` — an S7 `Real` write as Double fails with `BadTypeMismatch`). Security: servers with
+  `security: Sign|SignAndEncrypt` share one PKI (`data/pki`, override `OPCUA_PKI_ROOT`); the
+  gateway's self-signed cert is created on demand (pure JS, no OpenSSL) —
+  `ensureClientCertificate()` returns its path. Unknown SERVER certs: trust-on-first-use by
+  default, `OPCUA_STRICT_CERTS=1` rejects into `pki/rejected` (move to `pki/trusted/certs` +
+  restart to trust). Pure-None setups never create the PKI folder.
 - `wsServer.ts` — `startWsServer({ port, catalog, write })` → `WsHub`: sends catalog + snapshot +
   per-server status on connect; batches deltas into `update` frames (~250ms); handles `write`.
 - `historian.ts` — `openHistorian({ logTagIds })` writer (WAL, ~5s batched flush, ~1s/tag throttle,
   30d retention, numeric/bool only) + `openHistorianReader()` (read-only): `series(tag, from, to,
-  buckets)` bucketed AVG/MIN/MAX + `count()`. Uses built-in **`node:sqlite`** (no native compile,
+buckets)` bucketed AVG/MIN/MAX + `count()`. Uses built-in **`node:sqlite`** (no native compile,
   no admin rights needed anywhere).
 
 **Shared types** — `src/lib/opcua/types.ts` (client-safe): `TagDef`, `TagUpdate`, `ConnStatus`,
@@ -97,25 +103,33 @@ npm run dev        # web app → http://localhost:5173
 ```
 
 **Real PLC:** put the endpoint(s) in `config/tags.json` and restart the gateway. Single-server
-shortcut: `OPCUA_ENDPOINT` (+ `OPCUA_USER`/`OPCUA_PASS`) overrides the config endpoint without
-editing it. Discover NodeIds with `npm run probe -- opc.tcp://<ip>:4840`.
+shortcut: `OPCUA_ENDPOINT` (+ `OPCUA_USER`/`OPCUA_PASS`, `OPCUA_SECURITY`/
+`OPCUA_SECURITY_POLICY`) overrides the config without editing it. Discover NodeIds with
+`npm run probe -- opc.tcp://<ip>:4840`. Secure exchange rehearsal against the sim (it serves
+None AND Sign/SignAndEncrypt endpoints, auto-accepting client certs):
+`OPCUA_SECURITY=SignAndEncrypt npm run gateway`.
 
 ## Gotchas (don't relearn)
 
 - **Port 4840 may be taken on dev machines** — Windows boxes with Siemens tooling often have the
   OPC UA Local Discovery Server (`opcualds`) or PLCSIM holding it. Fix: `SIM_PORT=4841 npm run
-  sim` + `OPCUA_ENDPOINT=opc.tcp://localhost:4841/UA/VisuKitSim npm run gateway`.
+sim` + `OPCUA_ENDPOINT=opc.tcp://localhost:4841/UA/VisuKitSim npm run gateway`.
 - **S7 `Real` is a 4-byte `Float`**, not `Double`. Use `"dataType": "Float"` for S7 Reals or
   writes come back `BadTypeMismatch`. (Reads don't care.)
 - **S7 NodeId strings include the quotes**: `ns=3;s="MyDB"."MyTag"` — in JSON that's
   `"ns=3;s=\"MyDB\".\"MyTag\""`.
 - Siemens: OPC UA must be **activated in the CPU properties** (TIA Portal, + pick any runtime
   license) and the hardware config downloaded — port 102 answering does NOT mean 4840 is on.
-  PLCSIM Advanced: use online access *PLCSIM Virtual Eth. Adapter `<Local>`* — no physical NIC
+  PLCSIM Advanced: use online access _PLCSIM Virtual Eth. Adapter `<Local>`_ — no physical NIC
   or cable involved.
 - `node:sqlite` prints a harmless `ExperimentalWarning`; node-opcua's `NODE-OPCUA-W06` cert
-  warning is harmless under security `None`.
-- Security is `None` + anonymous everywhere right now — see roadmap.
+  warning is harmless under security `None` (it's about node-opcua's DEFAULT cert in %APPDATA%,
+  which secure connections don't use — they use `data/pki`).
+- Config default is security `None` + anonymous; per-server `"security": "SignAndEncrypt"`
+  turns on the certificate path (see README "Security & certificates"). In strict mode a cert
+  rejection does NOT keep retrying — trust the cert, then restart the gateway.
+- TIA Portal: the client-cert import lives under _Global security settings_ → certificate
+  manager; the runtime shortcut is "Automatically accept client certificates during runtime".
 
 ## Verification pattern
 
@@ -126,14 +140,17 @@ plus `GET /api/history?tag=…` returning bucketed points after ~30s of collecti
 
 ## Roadmap / not yet done
 
-1. **OPC UA security** — certificate-based `Sign & Encrypt` (Basic256Sha256) + the TIA-Portal
-   two-way cert-trust handshake. The biggest gap for real-plant use; README carries a warning.
-2. **README screenshot/GIF** of the HMI with the sim running (+ GitHub social preview).
-3. **Trend phase 2** — runtime pen picker, saved/named trend views in config, drag-zoom/pan,
+1. **README screenshot/GIF** of the HMI with the sim running (+ GitHub social preview).
+2. **Trend phase 2** — runtime pen picker, saved/named trend views in config, drag-zoom/pan,
    scrolling live tail, manual per-axis scaling, optional min/max band per pen.
-4. **TagButton variants** — momentary-on is hardcoded; a toggle mode and a "Turn off" affordance
+3. **TagButton variants** — momentary-on is hardcoded; a toggle mode and a "Turn off" affordance
    are a two-line change when needed.
-5. **Config hot-reload** — `reloadConfig()` exists but nothing calls it; gateway restart is the
+4. **Config hot-reload** — `reloadConfig()` exists but nothing calls it; gateway restart is the
    current answer to config edits.
-6. **Tests** — the e2e pattern above is manual; a scripted version (start sim+gateway, run the
+5. **Tests** — the e2e pattern above is manual; a scripted version (start sim+gateway, run the
    WS round-trip, assert) would make CI possible.
+
+Done since the initial commit: **OPC UA security** (2026-07-17) — per-server `Sign` /
+`SignAndEncrypt` (Basic256Sha256 default), gateway PKI + self-signed client cert in `data/pki`,
+trust-on-first-use or strict server-cert trust, secure endpoints on the sim. Verified: secure
+write round-trip against the sim, strict reject→trust→connect cycle, and None-mode regression.

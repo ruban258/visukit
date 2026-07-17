@@ -3,21 +3,89 @@
 // for that server's tags. Connections are brought up independently and non-blockingly — a server
 // that's down keeps retrying (maxRetry:-1) without stalling the others. Monitored-item changes
 // become TagUpdates (keyed by TagDef.id) via onChange; link transitions surface per-server via
-// onStatus. Writes are routed to the session that owns the tag.
+// onStatus. Writes are routed to the session that owns the tag. Servers configured with
+// security Sign/SignAndEncrypt use the shared PKI below (data/pki) and our client certificate.
 import {
 	OPCUAClient,
+	OPCUACertificateManager,
 	AttributeIds,
 	TimestampsToReturn,
 	MessageSecurityMode,
 	SecurityPolicy,
 	DataType,
-	Variant
+	Variant,
+	makeApplicationUrn
 } from 'node-opcua';
 import type { ClientSession, ClientSubscription, DataValue } from 'node-opcua';
+import { hostname } from 'node:os';
+import { existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import type { TagDef, TagUpdate, ConnStatus } from '../../opcua/types.ts';
-import type { ServerDef } from './tags.ts';
+import type { ServerDef, SecurityMode, SecurityPolicyName } from './tags.ts';
 
 export type { ConnStatus } from '../../opcua/types.ts';
+
+// ---------------------------------------------------------------------------
+// Security / PKI. Used only when a server's config asks for Sign / SignAndEncrypt — a pure-None
+// setup never touches the filesystem here. The store lives in data/pki (override: OPCUA_PKI_ROOT):
+//   own/certs/visukit-gateway.pem   OUR client certificate — the PLC must trust this one
+//                                   (TIA Portal: import as trusted client, or enable auto-accept)
+//   own/private/private_key.pem     our private key (never leaves this machine)
+//   trusted/certs/                  server certificates we trust
+//   rejected/certs/                 server certs we saw but rejected (strict mode)
+// Default is trust-on-first-use: an unknown SERVER cert is accepted and remembered in trusted/.
+// Set OPCUA_STRICT_CERTS=1 to reject unknown server certs instead; the rejected cert lands in
+// rejected/certs — move it to trusted/certs to complete the two-way handshake by hand.
+// Certificates are generated in pure JS (node-opcua-pki) — no OpenSSL, no admin rights.
+
+const PKI_ROOT = resolve(process.env.OPCUA_PKI_ROOT ?? 'data/pki');
+const APPLICATION_NAME = 'visukit-gateway';
+const APPLICATION_URI = makeApplicationUrn(hostname(), APPLICATION_NAME);
+const CERTIFICATE_FILE = join(PKI_ROOT, 'own', 'certs', 'visukit-gateway.pem');
+const PRIVATE_KEY_FILE = join(PKI_ROOT, 'own', 'private', 'private_key.pem');
+
+const MODES: Record<SecurityMode, MessageSecurityMode> = {
+	None: MessageSecurityMode.None,
+	Sign: MessageSecurityMode.Sign,
+	SignAndEncrypt: MessageSecurityMode.SignAndEncrypt
+};
+const POLICIES: Record<SecurityPolicyName, SecurityPolicy> = {
+	Basic256Sha256: SecurityPolicy.Basic256Sha256,
+	Aes128_Sha256_RsaOaep: SecurityPolicy.Aes128_Sha256_RsaOaep,
+	Aes256_Sha256_RsaPss: SecurityPolicy.Aes256_Sha256_RsaPss
+};
+
+let pki: Promise<OPCUACertificateManager> | null = null;
+
+// Init the PKI folder + our self-signed client certificate exactly once per process.
+function certificateManager(): Promise<OPCUACertificateManager> {
+	pki ??= (async () => {
+		const cm = new OPCUACertificateManager({
+			rootFolder: PKI_ROOT,
+			automaticallyAcceptUnknownCertificate: process.env.OPCUA_STRICT_CERTS !== '1'
+		});
+		await cm.initialize();
+		if (!existsSync(CERTIFICATE_FILE)) {
+			await cm.createSelfSignedCertificate({
+				applicationUri: APPLICATION_URI,
+				subject: `/CN=${APPLICATION_NAME}`,
+				dns: [hostname()],
+				startDate: new Date(),
+				validity: 3650, // days — 10 years; regenerate by deleting the file
+				outputFile: CERTIFICATE_FILE
+			});
+		}
+		return cm;
+	})();
+	return pki;
+}
+
+// Create (if needed) and return the path of the gateway's client certificate — this is the file
+// to import into the server's trust list (e.g. TIA Portal) for the two-way cert handshake.
+export async function ensureClientCertificate(): Promise<string> {
+	await certificateManager();
+	return CERTIFICATE_FILE;
+}
 
 export type GatewayOptions = {
 	servers: ServerDef[];
@@ -46,6 +114,7 @@ type ServerConnectionArgs = {
 	onStatus: (s: ConnStatus, detail?: string) => void;
 	publishingIntervalMs?: number;
 	samplingIntervalMs?: number;
+	certManager?: OPCUACertificateManager; // present iff server.security !== 'None'
 };
 
 // Connect ONE server. Returns immediately; the connect/session/subscription happen in the
@@ -54,10 +123,21 @@ function connectServer(args: ServerConnectionArgs): ServerConnection {
 	const { server, tags, onChange, onStatus } = args;
 	const byId = new Map(tags.map((t) => [t.id, t]));
 
+	const secure = server.security !== 'None';
 	const client = OPCUAClient.create({
-		applicationName: 'visukit-gateway',
-		securityMode: MessageSecurityMode.None,
-		securityPolicy: SecurityPolicy.None,
+		applicationName: APPLICATION_NAME,
+		securityMode: secure ? MODES[server.security] : MessageSecurityMode.None,
+		securityPolicy: secure ? POLICIES[server.securityPolicy] : SecurityPolicy.None,
+		// The cert manager / cert files only exist when security is requested; a plain None
+		// connection keeps the zero-setup behavior (no PKI folder created).
+		...(secure && args.certManager
+			? {
+					clientCertificateManager: args.certManager,
+					applicationUri: APPLICATION_URI,
+					certificateFile: CERTIFICATE_FILE,
+					privateKeyFile: PRIVATE_KEY_FILE
+				}
+			: {}),
 		endpointMustExist: false,
 		keepSessionAlive: true,
 		connectionStrategy: { maxRetry: -1, initialDelay: 1000, maxDelay: 10_000 }
@@ -148,6 +228,10 @@ export async function startGateway(opts: GatewayOptions): Promise<GatewayConnect
 		byServer.set(t.server, list);
 	}
 
+	// One shared PKI for all secure connections; skipped entirely when everything is None.
+	const anySecure = opts.servers.some((s) => s.security !== 'None');
+	const certManager = anySecure ? await certificateManager() : undefined;
+
 	const conns: ServerConnection[] = [];
 	const writeRouter = new Map<string, ServerConnection['write']>();
 	for (const server of opts.servers) {
@@ -159,7 +243,8 @@ export async function startGateway(opts: GatewayOptions): Promise<GatewayConnect
 			onChange: opts.onChange,
 			onStatus: (s, d) => opts.onStatus?.(server.id, s, d),
 			publishingIntervalMs: opts.publishingIntervalMs,
-			samplingIntervalMs: opts.samplingIntervalMs
+			samplingIntervalMs: opts.samplingIntervalMs,
+			certManager: server.security !== 'None' ? certManager : undefined
 		});
 		conns.push(conn);
 		for (const t of serverTags) writeRouter.set(t.id, conn.write);
